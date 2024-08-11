@@ -1,0 +1,285 @@
+#!/usr/bin/env python3
+# SPDX-License-Identifier: GPL-2.0-or-later
+#
+# Author: Patrick Wicki
+
+
+import argparse
+import dnf
+import dnf.cli
+import dnf.match_counter
+import hawkey
+import os
+import signal
+import subprocess
+import sys
+
+# Don't match summary if this many packages already match with the name alone
+SEARCH_MATCH_TRESHOLD = 100
+
+# ANSI escape codes for text formatting
+RESET = "\033[0m"
+BOLD = "\033[1m"
+RED = "\033[31m"
+GREEN = "\033[32m"
+YELLOW = "\033[33m"
+BLUE = "\033[34m"
+LIGHT_BLUE = "\033[94m"
+PURPLE = "\033[35m"
+GREY = "\033[90m"
+
+PROMPT = f"{BLUE}{BOLD}::{RESET} "
+
+base = dnf.Base()
+
+
+def _parse_args():
+    parser = argparse.ArgumentParser(
+        description="Interactively search and install packages with dnf, in the same style as paru and yay.")
+    parser.add_argument('--all-versions', action='store_true',
+                        help="Show all versions of a package. By default, only the latest is shown.")
+    parser.add_argument('--no-reverse', action='store_true',
+                        help="Don't reverse search results")
+    parser.add_argument('--no-match-summary', action='store_true',
+                        help="Don't match package summaries")
+    parser.add_argument('--match-description', action='store_true',
+                        help="Match package descriptions")
+    parser.add_argument('search_args', nargs='+', help="Search term(s)")
+
+    return parser.parse_args()
+
+
+def _read_repos():
+    base.read_all_repos()
+    base.fill_sack()
+
+
+def _search_counted(counter, attr, needle):
+    fdict = {'%s__substr' % attr: needle}
+    if dnf.util.is_glob_pattern(needle):
+        fdict = {'%s__glob' % attr: needle}
+    q = base.sack.query().filterm(hawkey.ICASE, **fdict)
+    for pkg in q.run():
+        counter.add(pkg, attr, needle)
+    return counter
+
+
+def _search_packages(args, match_summary=True, match_description=False, all_versions=False):
+    # Inspired by https://github.com/rpm-software-management/dnf/blob/master/dnf/cli/commands/search.py
+    counter = dnf.match_counter.MatchCounter()
+    for arg in args:
+        _search_counted(counter, 'name', arg)
+
+        if match_summary:
+            _search_counted(counter, 'summary', arg)
+
+        if match_description:
+            _search_counted(counter, 'description', arg)
+
+    # Remove pkgs that don't match every search term
+    needles = len(args)
+    pkgs = list(counter.keys())
+    for pkg in pkgs:
+        if len(counter.matched_needles(pkg)) != needles:
+            del counter[pkg]
+
+    # Limit packages to their latest versions. E.g. in Fedora, you always have a
+    # 'fedora' repo with the original versions from the time of release, and one
+    # called 'updates' that contains the latest versions
+    limit = None
+    if not all_versions:
+        limit = base.sack.query().filterm(pkg=counter.keys()).latest()
+    pkgs = counter.sorted(reverse=True, limit_to=limit)
+
+    return pkgs
+
+
+def _display_search_results(search_results, installed_pkgs, reverse=False):
+    index_width = len(str(len(search_results)))
+    if reverse:
+        search_results = reversed(search_results)
+
+    for i, pkg in search_results:
+
+        # Mark installed packages and show installed version if different
+        installed = None
+        for installed_pkg in installed_pkgs:
+            if installed_pkg.name == pkg.name and installed_pkg.arch == pkg.arch:
+                installed = installed_pkg
+                break
+        if installed:
+            if installed.version == pkg.version:
+                installed_status = f"{BOLD}{BLUE}[Installed]{RESET}"
+            else:
+                installed_status = f"{BOLD}{YELLOW}[Installed: {installed.version}-{installed.release}]{
+                    RESET}"
+        else:
+            installed_status = ""
+
+        # Hard code certain repo colors for recognizability
+        if pkg.reponame == "fedora":
+            repo_color = f"{BLUE}"
+        elif pkg.reponame == "updates":
+            repo_color = f"{LIGHT_BLUE}"
+        elif pkg.reponame.startswith("rpmfusion"):
+            repo_color = f"{PURPLE}"
+        else:
+            repo_color = f"{YELLOW}"
+
+        index = f"{PURPLE}{i+1:>{index_width}}{RESET}"
+        repo = f"{BOLD}{repo_color}{pkg.reponame}{RESET}"
+        package = f"{BOLD}{pkg.name}{RESET}"
+        vers = f"{GREEN}{BOLD}{
+            pkg.version}-{pkg.release}{RESET}{GREY}.{pkg.arch}{RESET}"
+        size = f"[{_human_readable_si_size(pkg.installsize)}]"
+
+        print(f"{index} {repo}/{package} {vers} {size} {installed_status}")
+        print(f"    {pkg.summary}")
+
+
+def _get_installed_packages():
+    return base.sack.query().installed()
+
+
+def _get_user_selection(search_results):
+    print(PROMPT + f"{BOLD}Packages to install (e.g., 1 2 3):{RESET}")
+    selected_numbers = input(PROMPT)
+
+    selected_packages = set()
+    max_number = len(search_results)
+    for num in selected_numbers.split():
+        try:
+            index = int(num) - 1
+            if 0 <= index < max_number:
+                selected_packages.add(search_results[index][1])
+            else:
+                print(f"Invalid selection: {num}")
+        except ValueError:
+            print(f"Invalid input: {num}")
+
+    return selected_packages
+
+
+def _confirm_transaction(transaction):
+    """Prompt the user for confirmation before proceeding with transaction."""
+
+    pkgs = transaction.install_set
+    n = len(pkgs)
+
+    pkgs = " ".join(
+        [f"{pkg.name}-{GREY}{pkg.version}-{pkg.release}{RESET}" for pkg in pkgs])
+
+    print()
+    print(f"{BOLD}Packages ({n}){RESET} {pkgs}")
+    print()
+
+    total_install_size = sum(
+        pkg.installsize for pkg in transaction.install_set)
+    print(f"{BOLD}Total installed size:{RESET} {
+          _human_readable_si_size(total_install_size)}")
+    print()
+
+    confirmation = input(
+        PROMPT + f"{BOLD}Proceed with installation? [Y/n]:{RESET} ").strip().lower()
+    if confirmation not in ['', 'y', 'yes']:
+        print("Installation aborted.")
+        sys.exit(0)
+
+
+def _install_packages(selected_packages):
+    for pkg in selected_packages:
+        base.package_install(pkg)
+
+    print("Resolving transaction...")
+    base.resolve()
+
+    if not base.transaction:
+        print("No packages to install.")
+        return
+
+    _confirm_transaction(base.transaction)
+
+    print("Downloading packages...")
+    dl_progress = dnf.cli.progress.MultiFileProgressMeter()
+    base.download_packages(base.transaction.install_set, dl_progress)
+
+    print("Installing...")
+    tr_progress = dnf.cli.output.CliTransactionDisplay()
+    base.do_transaction(tr_progress)
+
+
+def _install_packages_with_dnf_subcmd(selected_packages):
+    packages = " ".join(
+        [f"{pkg.name}-{pkg.version}-{pkg.release}.{pkg.arch}" for pkg in selected_packages])
+    subprocess.run(["sudo", "dnf", "install", packages])
+
+
+def _human_readable_si_size(bytes_size):
+    """
+    Convert a size in bytes to a human-readable format.
+    """
+    if bytes_size == 0:
+        return "0 B"
+
+    units = ['B', 'kiB', 'MB', 'GB', 'TB']
+
+    size = bytes_size
+    unit_index = 0
+    while size >= 1000 and unit_index < len(units) - 1:
+        size /= 1000
+        unit_index += 1
+
+    return f"{size:.2f} {units[unit_index]}"
+
+
+def _signal_handler(sig, frame):
+    """Handle Ctrl-C gracefully."""
+    print()
+    sys.exit(0)
+
+
+def main():
+    signal.signal(signal.SIGINT, _signal_handler)
+
+    # Use 'dnf install' command for package installation instead of creating a transaction ourselves
+    install_with_dnf_cmd = True
+
+    # Re-run the script with sudo
+    if os.geteuid() != 0 and not install_with_dnf_cmd:
+        subprocess.call(['sudo', sys.executable] + sys.argv)
+        return
+
+    args = _parse_args()
+
+    _read_repos()
+
+    installed_pkgs = _get_installed_packages()
+
+    search_results = _search_packages(args.search_args, match_summary=not args.no_match_summary,
+                                      match_description=args.match_description, all_versions=args.all_versions)
+
+    # Filter out @System packages
+    search_results = [
+        pkg for pkg in search_results if pkg not in installed_pkgs]
+
+    if not search_results:
+        print("No packages found.")
+        return
+
+    # Enumerate search results for user selection
+    search_results = [(i, pkg) for i, pkg in enumerate(search_results)]
+
+    _display_search_results(search_results, installed_pkgs, reverse=True)
+    selected_pkgs = _get_user_selection(search_results)
+
+    if selected_pkgs:
+        if install_with_dnf_cmd:
+            _install_packages_with_dnf_subcmd(selected_pkgs)
+        else:
+            _install_packages(selected_pkgs)
+    else:
+        print("No packages selected for installation.")
+
+
+if __name__ == "__main__":
+    main()
