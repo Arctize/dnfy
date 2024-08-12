@@ -17,30 +17,19 @@ packages using `dnf`, bringing the experience that
 
 ## Installation
 
-Clone this repository (or download `dnfy` directly)
-``` sh
-git clone https://github.com/arctize/dnfy.git
-cd dnfy
-chmod +x dnfy # Make sure it's executable
+Download `dnfy` to a location defined in the [PATH environment variable](https://www.baeldung.com/linux/path-variable):
+
+```sh
+sudo wget https://raw.githubusercontent.com/arctize/dnfy/main/dnfy -O /usr/local/bin/dnfy
+sudo chmod +x /usr/local/bin/dnfy # Make sure it's executable
 ```
 
-Inside the directory where the file resides, it can be run directly with
-`./dnfy`.
+## Update
 
-To make it runnable from anywhere, it needs to be in the `PATH`. Detailed
-information on this can be found
-[here](https://www.baeldung.com/linux/path-variable>).
+Simply run the Installation again. It will overwrite the existing file.
 
-A quick example:
+## Removal
 
-``` sh
-# Create bin dir for the local user
-mkdir -p ~/.local/bin
-
-# Create a link to dnfy in the git repo dir
-ln -s $(pwd)/dnfy ~/.local/bin/dnfy
-
-# Add the bin dir to PATH
-# To add it permanently, add the line to ~/.profile or ~/.bashrc.
-PATH=$PATH:$HOME/.local/bin
+```sh
+sudo rm -f /usr/local/bin/dnfy
 ```
