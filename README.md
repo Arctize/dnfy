@@ -17,11 +17,11 @@ packages using `dnf`, bringing the experience that
 
 ## Installation
 
-Download `dnfy` to a location defined in the [PATH environment variable](https://www.baeldung.com/linux/path-variable):
+Download `dnfy` and move it to somehwere in [PATH](https://www.baeldung.com/linux/path-variable):
 
 ```sh
-sudo wget https://raw.githubusercontent.com/arctize/dnfy/main/dnfy -O /usr/local/bin/dnfy
-sudo chmod +x /usr/local/bin/dnfy # Make sure it's executable
+curl -L -o dnfy https://raw.githubusercontent.com/arctize/dnfy/main/dnfy
+sudo install -m 755 dnfy /usr/local/bin/ # Install it system-wide
 ```
 
 ## Update
