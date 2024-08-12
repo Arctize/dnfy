@@ -17,18 +17,16 @@ packages using `dnf`, bringing the experience that
 
 ## Installation
 
-Download `dnfy`:
+Download `dnfy` to a location defined in the [PATH environment variable](https://www.baeldung.com/linux/path-variable):
 
 ```sh
-curl -L -o dnfy https://raw.githubusercontent.com/arctize/dnfy/main/dnfy
-chmod +x dnfy # Make sure it's executable
+sudo wget https://raw.githubusercontent.com/arctize/dnfy/main/dnfy -O /usr/local/bin/dnfy
+sudo chmod +x /usr/local/bin/dnfy # Make sure it's executable
 ```
 
-Move it to a location in PATH
+## Update
 
-```sh
-sudo mv dnfy /usr/local/bin/
-```
+Simply run the Installation again. It will overwrite the existing file.
 
 ## Removal
 
