@@ -8,11 +8,14 @@ packages using `dnf`, bringing the experience that
 ## Features
 
 - Search packages and show more informative output than `dnf search`
-    - Shows repository, package version, install size, and indicate if it's is
-      already installed
+  - See repository, package version, install size, and indicate if it's is
+    already installed
 - Interactively select packages to install from numbered search results
+- Update the system when run without arguments
+- Automatically elevate privileges with sudo when required
 
 ## Example
+
 ![image](https://github.com/user-attachments/assets/73ed0b23-1087-4318-a53b-acd5590cb2a2)
 
 ## Installation

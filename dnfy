@@ -44,7 +44,7 @@ def _parse_args():
                         help="Don't match package summaries")
     parser.add_argument('--match-description', action='store_true',
                         help="Match package descriptions")
-    parser.add_argument('search_terms', nargs='+', help="Search term(s)")
+    parser.add_argument('search_terms', nargs='*', help="Search term(s)")
 
     return parser.parse_args()
 
@@ -221,6 +221,10 @@ def _install_packages_with_dnf_subcmd(selected_packages):
     subprocess.run(["sudo", "dnf", "install", packages])
 
 
+def _update_system():
+    subprocess.run(["sudo", "dnf", "upgrade"])
+
+
 def _human_readable_si_size(bytes_size):
     """
     Convert a size in bytes to a human-readable format.
@@ -257,6 +261,11 @@ def main():
         return
 
     args = _parse_args()
+
+    # If we're not searching for packages, instead update the system
+    if not args.search_terms:
+        _update_system()
+        return
 
     _read_repos()
 
