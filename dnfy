@@ -44,7 +44,7 @@ def _parse_args():
                         help="Don't match package summaries")
     parser.add_argument('--match-description', action='store_true',
                         help="Match package descriptions")
-    parser.add_argument('search_args', nargs='+', help="Search term(s)")
+    parser.add_argument('search_terms', nargs='+', help="Search term(s)")
 
     return parser.parse_args()
 
@@ -111,8 +111,10 @@ def _display_search_results(search_results, installed_pkgs, reverse=False):
             if installed.version == pkg.version:
                 installed_status = f"{BOLD}{BLUE}[Installed]{RESET}"
             else:
-                installed_status = f"{BOLD}{YELLOW}[Installed: {installed.version}-{installed.release}]{
-                    RESET}"
+                installed_status = (
+                    f"{BOLD}{YELLOW}[Installed: "
+                    f"{installed.version}-{installed.release}]{RESET}"
+                )
         else:
             installed_status = ""
 
@@ -129,8 +131,10 @@ def _display_search_results(search_results, installed_pkgs, reverse=False):
         index = f"{PURPLE}{i+1:>{index_width}}{RESET}"
         repo = f"{BOLD}{repo_color}{pkg.reponame}{RESET}"
         package = f"{BOLD}{pkg.name}{RESET}"
-        vers = f"{GREEN}{BOLD}{
-            pkg.version}-{pkg.release}{RESET}{GREY}.{pkg.arch}{RESET}"
+        vers = (
+            f"{GREEN}{BOLD}{pkg.version}-{pkg.release}{RESET}"
+            f"{GREY}.{pkg.arch}{RESET}"
+        )
         size = f"[{_human_readable_si_size(pkg.installsize)}]"
 
         print(f"{index} {repo}/{package} {vers} {size} {installed_status}")
@@ -174,9 +178,12 @@ def _confirm_transaction(transaction):
     print()
 
     total_install_size = sum(
-        pkg.installsize for pkg in transaction.install_set)
-    print(f"{BOLD}Total installed size:{RESET} {
-          _human_readable_si_size(total_install_size)}")
+        pkg.installsize for pkg in transaction.install_set
+    )
+    print(
+        f"{BOLD}Total installed size:{RESET}"
+        f"{_human_readable_si_size(total_install_size)}"
+    )
     print()
 
     confirmation = input(
@@ -255,7 +262,7 @@ def main():
 
     installed_pkgs = _get_installed_packages()
 
-    search_results = _search_packages(args.search_args, match_summary=not args.no_match_summary,
+    search_results = _search_packages(args.search_terms, match_summary=not args.no_match_summary,
                                       match_description=args.match_description, all_versions=args.all_versions)
 
     # Filter out @System packages
