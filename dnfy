@@ -44,12 +44,19 @@ def _parse_args():
                         help="Don't match package summaries")
     parser.add_argument('--match-description', action='store_true',
                         help="Match package descriptions")
+    parser.add_argument('--create-transaction', action='store_true',
+                        help="[Experimental] Create transaction directly instead of calling 'sudo dnf ...'")
     parser.add_argument('search_terms', nargs='*', help="Search term(s)")
 
     return parser.parse_args()
 
 
 def _read_repos():
+    # NOTE: If there's any way to check beforehand if metadata is fresh enough,
+    # we could make printing this message optional. If downloads are required,
+    # we definitely want to show the message though, because it can take a long
+    # time.
+    print(f"{PROMPT}Updating repo metadata...")
     base.read_all_repos()
     base.fill_sack()
 
@@ -188,9 +195,7 @@ def _confirm_transaction(transaction):
 
     confirmation = input(
         PROMPT + f"{BOLD}Proceed with installation? [Y/n]:{RESET} ").strip().lower()
-    if confirmation not in ['', 'y', 'yes']:
-        print("Installation aborted.")
-        sys.exit(0)
+    return confirmation in ['', 'y', 'yes']
 
 
 def _install_packages(selected_packages):
@@ -204,7 +209,9 @@ def _install_packages(selected_packages):
         print("No packages to install.")
         return
 
-    _confirm_transaction(base.transaction)
+    if not _confirm_transaction(base.transaction):
+        print("Installation aborted.")
+        return
 
     print("Downloading packages...")
     dl_progress = dnf.cli.progress.MultiFileProgressMeter()
@@ -246,27 +253,13 @@ def _human_readable_si_size(bytes_size):
 def _signal_handler(sig, frame):
     """Handle Ctrl-C gracefully."""
     print()
-    sys.exit(0)
+    sys.exit(1)
 
 
-def main():
-    signal.signal(signal.SIGINT, _signal_handler)
+signal.signal(signal.SIGINT, _signal_handler)
 
-    # Use 'dnf install' command for package installation instead of creating a transaction ourselves
-    install_with_dnf_cmd = True
 
-    # Re-run the script with sudo
-    if os.geteuid() != 0 and not install_with_dnf_cmd:
-        subprocess.call(['sudo', sys.executable] + sys.argv)
-        return
-
-    args = _parse_args()
-
-    # If we're not searching for packages, instead update the system
-    if not args.search_terms:
-        _update_system()
-        return
-
+def _search_and_install(args):
     _read_repos()
 
     installed_pkgs = _get_installed_packages()
@@ -288,13 +281,30 @@ def main():
     _display_search_results(search_results, installed_pkgs, reverse=True)
     selected_pkgs = _get_user_selection(search_results)
 
-    if selected_pkgs:
-        if install_with_dnf_cmd:
-            _install_packages_with_dnf_subcmd(selected_pkgs)
-        else:
-            _install_packages(selected_pkgs)
+    if not selected_pkgs:
+        print("No packages selected.")
+        return
+
+    if args.create_transaction:
+        _install_packages(selected_pkgs)
     else:
-        print("No packages selected for installation.")
+        # Use 'dnf install' command for package installation instead of creating a transaction ourselves
+        _install_packages_with_dnf_subcmd(selected_pkgs)
+
+
+def main():
+    args = _parse_args()
+
+    # Re-run the script with sudo if needed
+    if args.create_transaction and os.geteuid() != 0:
+        subprocess.call(['sudo', sys.executable] + sys.argv)
+        return
+
+    if args.search_terms:
+        _search_and_install(args)
+    else:
+        # If we're not searching for packages, instead update the system
+        _update_system()
 
 
 if __name__ == "__main__":
