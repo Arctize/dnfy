@@ -106,14 +106,13 @@ def _display_search_results(search_results, installed_pkgs, reverse=False):
     if reverse:
         search_results = reversed(search_results)
 
+    # Auxiliary map for fast lookup of installed packages
+    installed_map = {(pkg.name, pkg.arch): pkg for pkg in installed_pkgs}
+
     for i, pkg in search_results:
 
         # Mark installed packages and show installed version if different
-        installed = None
-        for installed_pkg in installed_pkgs:
-            if installed_pkg.name == pkg.name and installed_pkg.arch == pkg.arch:
-                installed = installed_pkg
-                break
+        installed = installed_map.get((pkg.name, pkg.arch))
         if installed:
             if installed.version == pkg.version:
                 installed_status = f"{BOLD}{BLUE}[Installed]{RESET}"
